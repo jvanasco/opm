@@ -172,7 +172,7 @@ sub do_get {
 
     #warn Dumper($deps);
 
-    my $ctx = init_installation_ctx(0);
+    my $ctx = init_installation_ctx(0);  # 0 = not upgrade
 
     for my $dep (@$deps) {
         install_target($ctx, $dep);
@@ -197,30 +197,29 @@ The first argument indicates the build type
 
     my $account;
     if (!$server_build) {
-        my ($rcfile, $data) = get_rc_file();
-        my $default_sec = $data->{default};
-        $account = delete $default_sec->{github_account};
+        my ($rc_file, $rc_data) = get_rc_file();
+        my $rc_default_sec = $rc_data->{default};
+        $account = delete $rc_default_sec->{github_account};
         if (!$account) {
-            err "$rcfile: no \"github_account\" specified.\n";
+            err "$rc_file: no \"github_account\" specified.\n";
         }
     }
 
     my $dist_file = "dist.ini";
-    my $data = read_ini($dist_file);
+    my $ini_data = read_ini($dist_file);
+    #warn Dumper($ini_data);
 
-    #warn Dumper($data);
+    my $ini_default_sec = delete $ini_data->{default};
 
-    my $default_sec = delete $data->{default};
-
-    my $dist_name = delete $default_sec->{name};
+    my $dist_name = delete $ini_default_sec->{name};
     is_valid_dist_name($dist_name, $dist_file);
 
     if ($server_build) {
-        $account = delete $default_sec->{account}
+        $account = delete $ini_default_sec->{account}
             or err "$dist_file: key \"account\" not found in the default section.\n";
     }
 
-    my $author = delete $default_sec->{author};
+    my $author = delete $ini_default_sec->{author};
     if (!$author) {
         err "$dist_file: key \"author\" not found in the default section.\n";
     }
@@ -232,7 +231,7 @@ The first argument indicates the build type
         err "$dist_file: bad value in the \"author\" field of the default section: $author\n";
     }
 
-    my $is_original = delete $default_sec->{is_original};
+    my $is_original = delete $ini_default_sec->{is_original};
     if (!$is_original) {
         err "$dist_file: key \"is_original\" not found in the default section.\n";
     }
@@ -242,7 +241,7 @@ The first argument indicates the build type
             "default section: $is_original (only \"yes\" or \"no\" are allowed)\n";
     }
 
-    my $license = delete $default_sec->{license};
+    my $license = delete $ini_default_sec->{license};
     if (!$license) {
         err "$dist_file: key \"license\" not found in the default section.\n";
     }
@@ -264,14 +263,14 @@ The first argument indicates the build type
 
     warn "found license: ", join(", ", @license_descs), ".\n";
 
-    my $dist_abstract = delete $default_sec->{abstract};
+    my $dist_abstract = delete $ini_default_sec->{abstract};
     if (!$dist_abstract) {
         err "$dist_file: key \"abstract\" not found in the default section.\n";
     }
 
     check_utf8_field($dist_file, 'abstract', $dist_abstract);
 
-    my $repo_link = delete $default_sec->{repo_link};
+    my $repo_link = delete $ini_default_sec->{repo_link};
     if (!$repo_link) {
         err "$dist_file: key \"repo_link\" not found in the default section.\n";
     }
@@ -328,7 +327,7 @@ The first argument indicates the build type
 
 =cut
 
-    my $version = delete $default_sec->{version};
+    my $version = delete $ini_default_sec->{version};
 
     if ($server_build && !$version) {
             err "$dist_file: \"version\" field not defined in the default section.\n";
@@ -341,7 +340,7 @@ The first argument indicates the build type
     }
 
     my $deps;
-    my $requires = delete $default_sec->{requires};
+    my $requires = delete $ini_default_sec->{requires};
 
     if ($requires) {
         $deps = parse_deps($requires, $dist_file);
@@ -351,7 +350,7 @@ The first argument indicates the build type
         }
 
         if (!$server_build) {
-            my $ctx = init_installation_ctx(0);
+            my $ctx = init_installation_ctx(0);  # 0 = not upgrade
             $ctx->{level} = 1;
 
             for my $dep (@$deps) {
@@ -361,7 +360,7 @@ The first argument indicates the build type
     }
 
     my @exclude_files;
-    my $exclude = delete $default_sec->{exclude_files};
+    my $exclude = delete $ini_default_sec->{exclude_files};
     if ($exclude) {
         my @pats = grep { $_ } split /\s*,\s*/, $exclude;
         for my $pat (@pats) {
@@ -374,7 +373,7 @@ The first argument indicates the build type
         }
     }
 
-    my $lib_dir = delete $default_sec->{lib_dir};
+    my $lib_dir = delete $ini_default_sec->{lib_dir};
 
     if ($server_build && $lib_dir ne 'lib') {
         err "$dist_file: \"lib_dir\" must be \"lib\".\n";
@@ -390,7 +389,7 @@ The first argument indicates the build type
         }
     }
 
-    my $user_main_module = delete $default_sec->{main_module};
+    my $user_main_module = delete $ini_default_sec->{main_module};
     if ($user_main_module) {
         check_user_file_path($dist_file, "main_module", $user_main_module, 'f');
     }
@@ -496,19 +495,19 @@ The first argument indicates the build type
 
     # copy document files over.
 
-    my $doc_dir = delete $default_sec->{doc_dir};
+    my $doc_dir = delete $ini_default_sec->{doc_dir};
 
     if ($server_build && $doc_dir ne 'lib') {
         err "$dist_file: \"doc_dir\" must be \"lib\".\n";
     }
 
-    if (%$default_sec) {
-        my @keys = sort keys %$default_sec;
+    if (%$ini_default_sec) {
+        my @keys = sort keys %$ini_default_sec;
         err "$dist_file: unrecognized keys under the default section: @keys.\n";
     }
 
-    if (%$data) {
-        my @keys = sort keys %$data;
+    if (%$ini_data) {
+        my @keys = sort keys %$ini_data;
         err "$dist_file: unrecognized section names: @keys.\n";
     }
 
@@ -699,10 +698,10 @@ It performs these functions:
 	# phase 2 - `cd $dist_name-$version/`
 	# phase 2a - derive the version data	
     my $dist_file = "dist.ini";
-    my $data = read_ini($dist_file);
-    my $default_sec = $data->{default};
-    my $dist_name = $default_sec->{name};
-    my $version = $default_sec->{version};
+    my $ini_data = read_ini($dist_file);
+    my $ini_default_sec = $ini_data->{default};
+    my $dist_name = $ini_default_sec->{name};
+    my $version = $ini_default_sec->{version};
 
 	# phase 2b - `cd `
 	my $versioned_directory = "$dist_name-$version";
@@ -715,30 +714,22 @@ It performs these functions:
 	# we're down a directory, go back up
 	# actually, don't.  the opm.gz file is what we want to install here
 	# chdir File::Spec->updir;
-
 	my $versioned_file = "$dist_name-$version.opm.tar.gz";
 
-	# we need the account info
-	my ($rc_file, $rc_data) = get_rc_file();
-	my $account = $rc_data->{default}->{github_account};
-	if (!$account) {
-		err "$rc_file: no \"github_account\" specified.\n";
-	}
-	
-    my $ctx = init_installation_ctx(0);
+    my $ctx = init_installation_ctx(0);  # 0 = not upgrade
 
 	# is it installed?
 	my $meta_file = File::Spec->catfile($ctx->{manifest_dir}, "$dist_name.meta");
     my $remove_old;
     if (-f $meta_file) {
+    	# for `build-install`:
+    	#     always remove_old if the meta_file exists, regardless of version
+    	# `get` will want to compare the version numbers
     	$remove_old = 1;
 	}
 
-
+	# package_ctx is needed to get the directories right for `install_distribution` 
     my $package_ctx_args = {
-    	"manifest_dir" => $ctx->{manifest_dir},
-    	"working_dir" => getcwd(),
-    	"account" => $account,
     	"name" => $dist_name,
     	"remove_old" => $remove_old,
     };
@@ -872,63 +863,63 @@ sub do_upload {
         err "uploading proprietary code is prohibited.\n";
     }
 
-    my ($rcfile, $data) = get_rc_file();
+    my ($rc_file, $rc_data) = get_rc_file();
 
-    my $default_sec = delete $data->{default};
+    my $rc_default_sec = delete $rc_data->{default};
 
-    my $account = delete $default_sec->{github_account};
+    my $account = delete $rc_default_sec->{github_account};
     if (!$account) {
-        err "$rcfile: no \"github_account\" specified.\n";
+        err "$rc_file: no \"github_account\" specified.\n";
     }
 
     if ($account !~ /^[-\w]+$/) {
-        err "$rcfile: bad \"github_account\" value: $account\n";
+        err "$rc_file: bad \"github_account\" value: $account\n";
     }
 
     if (defined $RepoLinkUser && $RepoLinkUser ne $account) {
-        err "$rcfile: github_account \"$account\" does not match the ",
+        err "$rc_file: github_account \"$account\" does not match the ",
             "github account \"$RepoLinkUser\" in repo_link $RepoLink in dist.ini.\n";
     }
 
-    my $token = delete $default_sec->{github_token};
+    my $token = delete $rc_default_sec->{github_token};
     if (!$token) {
-        err "$rcfile: no \"github_token\" specified.\n";
+        err "$rc_file: no \"github_token\" specified.\n";
     }
 
     if ($token !~ /^[a-f0-9]{40}$/i) {
-        err "$rcfile: bad \"github_token\" value: $token\n";
+        err "$rc_file: bad \"github_token\" value: $token\n";
     }
 
-    my $upload_url = delete $default_sec->{upload_server};
+    my $upload_url = delete $rc_default_sec->{upload_server};
     if (!$upload_url) {
-        err "$rcfile: no upload_server specified.\n";
+        err "$rc_file: no upload_server specified.\n";
     }
 
     if ($upload_url !~ m{^https?://}) {
-        err "$rcfile: the value of upload_server must be ",
+        err "$rc_file: the value of upload_server must be ",
             "led by https:// or http://.\n";
     }
 
     $upload_url =~ s{/+$}{};
 
-    my $download_url = delete $default_sec->{download_server};
+    my $download_url = delete $rc_default_sec->{download_server};
     if (!$download_url) {
-        err "$rcfile: no download_server specified.\n";
+        err "$rc_file: no download_server specified.\n";
     }
 
     if ($download_url !~ m{^https?://}) {
-        err "$rcfile: the value of download_server must be ",
+        err "$rc_file: the value of download_server must be ",
             "led by https:// or http://.\n";
     }
 
-    if (%$default_sec) {
-        my @keys = sort keys %$default_sec;
-        err "$rcfile: unrecognized keys under the default section: @keys.\n";
+    if (%$rc_default_sec) {
+        my @keys = sort keys %$rc_default_sec;
+        err "$rc_file: unrecognized keys under the default section: @keys.\n";
     }
 
-    if (%$data) {
-        my @keys = sort keys %$data;
-        err "$rcfile: unrecognized section names: @keys.\n";
+    if (%$rc_data) {
+        my @keys = sort keys %$rc_data;
+        err "$rc_file: unrecognized section names: @keys.\n";
     }
 
     my $md5sum;
@@ -977,11 +968,11 @@ sub find_restydoc_index {
 }
 
 sub create_stub_rc_file ($) {
-    my $rcfile = shift;
+    my $rc_file = shift;
 
     # create a stub
-    open my $out, ">$rcfile"
-        or err "cannot open $rcfile for writing: $!\n";
+    open my $out, ">$rc_file"
+        or err "cannot open $rc_file for writing: $!\n";
     print $out <<_EOC_;
 # your github account name (either your github user name or github organization that you owns)
 github_account=
@@ -999,8 +990,8 @@ download_server=https://opm.openresty.org
 _EOC_
     close $out;
 
-    chmod 0600, $rcfile
-        or err "$rcfile: failed to chmod to 0600: $!\n";
+    chmod 0600, $rc_file
+        or err "$rc_file: failed to chmod to 0600: $!\n";
 }
 
 sub get_rc_file () {
@@ -1009,12 +1000,12 @@ sub get_rc_file () {
         err "environment HOME not defined.\n";
     }
 
-    my $rcfile = File::Spec->catfile($home, ".opmrc");
-    if (!-f $rcfile) {
-        create_stub_rc_file($rcfile);
+    my $rc_file = File::Spec->catfile($home, ".opmrc");
+    if (!-f $rc_file) {
+        create_stub_rc_file($rc_file);
     }
 
-    return ($rcfile, read_ini($rcfile));
+    return ($rc_file, read_ini($rc_file));
 }
 
 sub check_lock_file () {
@@ -1179,13 +1170,13 @@ sub install_target ($$) {
 
     {
         if (-f $meta_file) {
-            my $data = read_ini($meta_file);
-            my $default_sec = $data->{default};
+            my $ini_data = read_ini($meta_file);
+            my $ini_default_sec = $ini_data->{default};
 
-            my $meta_account = $default_sec->{account}
+            my $meta_account = $ini_default_sec->{account}
                 or err "$meta_file: key \"account\" not found.\n";
 
-            my $v = $default_sec->{version}
+            my $v = $ini_default_sec->{version}
                 or err "$meta_file: key \"version\" not found.\n";
 
             if ($meta_account ne $account) {
@@ -1429,12 +1420,10 @@ sub install_target ($$) {
     }
 
 	my $package_ctx_args = {
-		"working_dir" => $cache_dir,
 		"cwd" => $cwd,
-		"manifest_dir" => $manifest_dir,
-		"account" => $account,
 		"name" => $name,
 		"remove_old" => $remove_old,
+		"working_dir" => $cache_dir,
 	};
     my $package_ctx = init_package_ctx($package_ctx_args);
     install_distribution($ctx, $package_ctx, $dist_file, );
@@ -1453,7 +1442,6 @@ installs a distribution file (.tar.gz)
 =cut
 	my ($ctx, $package_ctx, $distribution_file) = @_;
 	my $working_dir = $package_ctx->{working_dir};
-	my $account = $package_ctx->{account};
 	my $name = $package_ctx->{name};
 
 	if (!-e $distribution_file){
@@ -1474,10 +1462,13 @@ installs a distribution file (.tar.gz)
     # read dist.ini
 
     my $ini_file = "dist.ini";
-    my $data_dist = read_ini($ini_file);
-    my $default_sec = $data_dist->{default};
+    my $ini_data_dist = read_ini($ini_file);
+    my $ini_default_sec = $ini_data_dist->{default};
 
-    my $version = $default_sec->{version}
+	my $account = $ini_default_sec->{account} 
+        or err "$dist_dir: no account found in $ini_file\n";
+	
+    my $version = $ini_default_sec->{version}
         or err "$dist_dir: no version found in $ini_file\n";
 
     if (!-d 'lib') {
@@ -1493,12 +1484,11 @@ installs a distribution file (.tar.gz)
         err "no $restydoc_index file found in $dist_dir/.\n";
     }
 
-    my $requires = $default_sec->{requires};
+    my $requires = $ini_default_sec->{requires};
     if ($requires) {
         my $deps = parse_deps($requires, $ini_file);
 
         $ctx->{pkg_installing}{"$account/$name"} = 1;
-
         $ctx->{level}++;
 
         for my $dep (@$deps) {
@@ -1569,7 +1559,7 @@ installs a distribution file (.tar.gz)
         install_file($src, $dst, $pod_dir);
     }
 
-    my $list_file = File::Spec->catfile($package_ctx->{manifest_dir}, "$name.list");
+    my $list_file = File::Spec->catfile($ctx->{manifest_dir}, "$name.list");
 
     {
         open my $out, ">$list_file"
@@ -1589,7 +1579,7 @@ installs a distribution file (.tar.gz)
         close $out;
     }
 
-    install_file($ini_file, "$name.meta", $package_ctx->{manifest_dir});
+    install_file($ini_file, "$name.meta", $ctx->{manifest_dir});
 
     # install resty.index
 
@@ -1740,10 +1730,10 @@ sub remove_target ($$$) {
 
     my $version;
     if (-f $meta_file) {
-        my $data = read_ini($meta_file);
+        my $ini_data = read_ini($meta_file);
 
-        my $default_sec = $data->{default};
-        my $meta_account = $default_sec->{account};
+        my $ini_default_sec = $ini_data->{default};
+        my $meta_account = $ini_default_sec->{account};
 
         if ($account) {
             if ($account ne $meta_account) {
@@ -1755,7 +1745,7 @@ sub remove_target ($$$) {
             $account = $meta_account;
         }
 
-        $version = $default_sec->{version};
+        $version = $ini_default_sec->{version};
     }
 
     my $restydoc_index = "resty.index";
@@ -1864,7 +1854,7 @@ sub do_remove {
 
     my $deps = parse_deps(\@_, "(command-line argument)", 1);
 
-    my $ctx = init_installation_ctx(0);
+    my $ctx = init_installation_ctx(0);  # 0 = not upgrade
 
     for my $dep (@$deps) {
         my ($account, $name, $op, $ver) = @$dep;
@@ -1895,13 +1885,13 @@ sub do_list {
 
             my $file = File::Spec->catfile($manifest_dir, $entry);
 
-            my $data = read_ini($file);
-            my $default_sec = $data->{default};
+            my $ini_data = read_ini($file);
+            my $ini_default_sec = $ini_data->{default};
 
-            my $version = $default_sec->{version}
+            my $version = $ini_default_sec->{version}
                 or err "$file: no version found for package $pkg.\n";
 
-            my $account = $default_sec->{account}
+            my $account = $ini_default_sec->{account}
                 or err "$file: no account found for package $pkg.\n";
 
             printf "%-60s %s\n", "$account/$pkg", $version;
@@ -1943,10 +1933,10 @@ sub do_info {
             err "package $name not installed yet.\n";
         }
 
-        my $data = read_ini $meta_file;
-        my $default_sec = $data->{default};
+        my $ini_data = read_ini $meta_file;
+        my $ini_default_sec = $ini_data->{default};
 
-        my $meta_account = $default_sec->{account}
+        my $meta_account = $ini_default_sec->{account}
             or err "$meta_file: key \"account\" not found.\n";
 
         if ($account && $meta_account ne $account) {
@@ -1954,7 +1944,7 @@ sub do_info {
                 "(but $meta_account/$name installed).\n";
         }
 
-        my $license = $default_sec->{license}
+        my $license = $ini_default_sec->{license}
             or err "$meta_file: key \"license\" not found.\n";
 
         my @licenses = split /\s*,\s*/, $license;
@@ -1975,16 +1965,16 @@ sub do_info {
 
         print <<_EOC_;
 Name             : $name
-Version          : $default_sec->{version}
-Abstract         : $default_sec->{abstract}
-Author           : $default_sec->{author}
+Version          : $ini_default_sec->{version}
+Abstract         : $ini_default_sec->{abstract}
+Author           : $ini_default_sec->{author}
 Account          : $meta_account
-Code Repo        : $default_sec->{repo_link}
+Code Repo        : $ini_default_sec->{repo_link}
 License          : $license_lines
-Original Work    : $default_sec->{is_original}
+Original Work    : $ini_default_sec->{is_original}
 _EOC_
 
-        my $requires = $default_sec->{requires};
+        my $requires = $ini_default_sec->{requires};
         if ($requires) {
             print <<_EOC_;
 Requires         : $requires
@@ -1998,7 +1988,7 @@ sub do_upgrade {
         err "no packages specified for upgrade.\n";
     }
 
-    my $ctx = init_installation_ctx(1);
+    my $ctx = init_installation_ctx(1);  # 1 = upgrade
     my $manifest_dir = $ctx->{manifest_dir};
 
     local $_;
@@ -2022,37 +2012,51 @@ sub do_upgrade {
 
 sub init_package_ctx ($){
 =pod
-The `package_ctx` is a scoped context object.
+The `package_ctx` is a scoped context object for installing a package.
 It is used in parallel to the `installation_ctx`.
+
+* `working_dir` should be the cache_dir (get) or the local dir (build-install)
+
 =cut
 	my $defaults = shift;
 	my $package_ctx = {
 		cwd => $defaults->{cwd} // cwd,
 		getcwd => $defaults->{getcwd} // getcwd(),
-		working_dir => $defaults->{working_dir} // undef,  # install_target,
-		manifest_dir => $defaults->{manifest_dir} // undef,  # install_target, do_build_install
-		account => $defaults->{account} // undef,  # install_target, do_build_install
-		name => $defaults->{name} // undef,  # install_target
-		remove_old => $defaults->{remove_old} // undef,  # install_target
+
+		name => $defaults->{name} // die ("I must have a name"),
+		remove_old => $defaults->{remove_old} // undef,
+		working_dir => $defaults->{working_dir} // getcwd(),
 	};
 	return $package_ctx;
 }
 
 
 sub init_installation_ctx ($) {
+=pod
+Core installation context
+Single argument is boolean `$upgrade`
+
+	Called by		   Upgrade?
+	* do_get           0
+	* do_build         0 
+	* do_build_install 0
+	* do_remove        0 
+	* do_upgrade       1
+	* do_update        1
+=cut
     my $upgrade = shift;
 
-    my ($rcfile, $data) = get_rc_file();
+    my ($rc_file, $rc_data) = get_rc_file();
 
-    my $default_sec = delete $data->{default};
+    my $rc_default_sec = delete $rc_data->{default};
 
-    my $download_url = delete $default_sec->{download_server};
+    my $download_url = delete $rc_default_sec->{download_server};
     if (!$download_url) {
-        err "$rcfile: no download_server specified.\n";
+        err "$rc_file: no download_server specified.\n";
     }
 
     if ($download_url !~ m{^https?://}) {
-        err "$rcfile: the value of download_server must be ",
+        err "$rc_file: the value of download_server must be ",
             "led by https:// or http://.\n";
     }
 
@@ -2133,13 +2137,13 @@ sub init_installation_ctx ($) {
 sub upgrade_target ($$$$) {
     my ($ctx, $account, $name, $meta_file) = @_;
 
-    my $data = read_ini $meta_file;
-    my $default_sec = $data->{default};
+    my $ini_data = read_ini $meta_file;
+    my $ini_default_sec = $ini_data->{default};
 
-    my $ver = $default_sec->{version}
+    my $ver = $ini_default_sec->{version}
         or err "$meta_file: key \"version\" not found.\n";
 
-    my $meta_account = $default_sec->{account}
+    my $meta_account = $ini_default_sec->{account}
         or err "$meta_file: key \"account\" not found.\n";
 
     if ($account && $meta_account ne $account) {
@@ -2160,7 +2164,7 @@ sub do_update {
         return;
     }
 
-    my $ctx = init_installation_ctx(1);
+    my $ctx = init_installation_ctx(1);  # 1 = upgrade
 
     opendir my $dh, $manifest_dir
         or err "failed to open directory $manifest_dir: $!\n";
@@ -2172,10 +2176,10 @@ sub do_update {
 
             my $file = File::Spec->catfile($manifest_dir, $entry);
 
-            my $data = read_ini($file);
-            my $default_sec = $data->{default};
+            my $ini_data = read_ini($file);
+            my $ini_default_sec = $ini_data->{default};
 
-            my $account = $default_sec->{account}
+            my $account = $ini_default_sec->{account}
                 or err "$file: no account found for package $name.\n";
 
             upgrade_target($ctx, $account, $name, $file);
@@ -2207,17 +2211,17 @@ sub do_search {
         err "query too long: ", length $query, " bytes.\n";
     }
 
-    my ($rcfile, $data) = get_rc_file();
+    my ($rc_file, $rc_data) = get_rc_file();
 
-    my $default_sec = delete $data->{default};
+    my $rc_default_sec = delete $rc_data->{default};
 
-    my $download_url = delete $default_sec->{download_server};
+    my $download_url = delete $rc_default_sec->{download_server};
     if (!$download_url) {
-        err "$rcfile: no download_server specified.\n";
+        err "$rc_file: no download_server specified.\n";
     }
 
     if ($download_url !~ m{^https?://}) {
-        err "$rcfile: the value of download_server must be ",
+        err "$rc_file: the value of download_server must be ",
             "led by https:// or http://.\n";
     }
 
@@ -2349,9 +2353,9 @@ sub do_clean {
 
     if ($_[0] eq 'dist') {
         my $dist_file = "dist.ini";
-        my $data = read_ini($dist_file);
-        my $default_sec = $data->{default};
-        my $dist_name = $default_sec->{name};
+        my $ini_data = read_ini($dist_file);
+        my $ini_default_sec = $ini_data->{default};
+        my $dist_name = $ini_default_sec->{name};
 
         is_valid_dist_name($dist_name, $dist_file);
 
@@ -2435,7 +2439,9 @@ Commands:
                         for uploading to the server.
 
     build-install       Build from the current working directory a package tarball ready
-                        for uploading to the server, and install locally.
+                        for uploading to the server, verify the build with `server-build`,
+                        and finally install the package locally -- all without
+                        communicating with the server.
 
     clean ARGUMENT...   Do clean-up work. Currently the valid argument is "dist", which
                         cleans up the temporary files and directories created by the "build"
